@@ -1,36 +1,98 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ResumeRadar
 
-## Getting Started
+AI-powered ATS resume intelligence platform for the Indian job market.
 
-First, run the development server:
+## What it does
 
-```bash
+ResumeRadar analyses your resume against a specific job description and tells you:
+- Your ATS score (0–100) with section-wise breakdown
+- Exactly which keywords are matched, missing, and bonus
+- Section-by-section analysis with real content from your resume
+- Before/after AI rewrites for every weak bullet
+- India-specific warnings (photo, DOB, address, campus email)
+- Ghost Mode — reverse-engineer the ideal candidate profile from any JD
+- JD Decoder — separate real requirements from filler, detect red flags
+- Interview Prep — 20 questions tailored to your specific resume gaps
+
+## Tech stack
+
+- **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS, Framer Motion
+- **Backend**: Next.js API routes, Prisma ORM
+- **Database**: PostgreSQL (Supabase)
+- **AI**: Groq API (llama-3.3-70b-versatile)
+- **Storage**: Supabase Storage
+- **Auth**: NextAuth.js (credentials + Google OAuth)
+- **PDF parsing**: pdf2json
+
+## Local setup
+
+### 1. Clone and install
+
+\`\`\`bash
+git clone https://github.com/your-username/resumeradar.git
+cd resumeradar
+npm install
+\`\`\`
+
+### 2. Environment variables
+
+\`\`\`bash
+cp .env.example .env.local
+\`\`\`
+
+Fill in all values in `.env.local` — see comments for where to get each one.
+
+### 3. Database setup
+
+\`\`\`bash
+npx prisma generate
+npx prisma db push
+\`\`\`
+
+### 4. Supabase Storage
+
+Create a private bucket called `resumes` in your Supabase project under Storage.
+
+### 5. Run
+
+\`\`\`bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+\`\`\`
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Vercel (recommended)
 
-## Learn More
+1. Push to GitHub
+2. Connect repo to Vercel
+3. Add all env vars from `.env.local` to Vercel dashboard
+4. Deploy
 
-To learn more about Next.js, take a look at the following resources:
+\`\`\`bash
+git add .
+git commit -m "feat: initial deploy"
+git push
+\`\`\`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+\`\`\`
+resumeradar/
+├── app/
+│   ├── (auth)/          # Login, register pages
+│   ├── (dashboard)/     # All dashboard pages
+│   ├── api/             # API routes
+│   └── ...
+├── components/
+│   ├── auth/            # Auth components
+│   ├── dashboard/       # Dashboard components
+│   ├── landing/         # Landing page
+│   └── ui/              # Reusable UI components
+├── lib/                 # Prisma, Groq, Supabase, auth config
+├── prisma/              # Schema
+├── types/               # TypeScript types
+├── validations/         # Zod schemas
+└── workers/             # AI scan processor
+\`\`\`
