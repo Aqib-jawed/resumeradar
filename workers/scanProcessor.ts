@@ -191,22 +191,39 @@ async function analyseWithGroq(
   jobTitle:       string,
   companyName:    string
 ) {
-  const prompt = `You are a strict, senior ATS analyst for the Indian job market. Your analysis must be based EXCLUSIVELY on the resume text provided. Never assume content is missing if it exists anywhere in the text.
+  // Calculate basic stats to force the model to be accurate
+  const jdWords     = jobDescription.toLowerCase().match(/\b\w{4,}\b/g) ?? []
+  const resumeWords = resumeText.toLowerCase().match(/\b\w{4,}\b/g) ?? []
+  const jdWordSet   = new Set(jdWords)
+  const resumeWordSet = new Set(resumeWords)
 
-CRITICAL RULES:
-1. Read the ENTIRE resume text before making ANY judgement
-2. Contact info (name, email, phone, LinkedIn) is almost always at the TOP of a resume — look for it there first
-3. A summary/objective paragraph near the top (after contact info) counts as a summary — do NOT say "not found" if any introductory paragraph exists
-4. Education section contains degree, university, graduation year, CGPA — look for "B.Tech", "B.E.", "MBA", "University", "CGPA", "GPA", "College"
-5. Score each section honestly based on quality vs the JD — do NOT give everything 85
-6. ATS score MUST vary based on actual keyword match — if only 30% of JD keywords are in the resume, score should reflect that
+  // Pre-calculate keyword overlap so model can't ignore it
+  const overlap = [...jdWordSet].filter(w => resumeWordSet.has(w))
+  const overlapPct = Math.round((overlap.length / Math.max(jdWordSet.size, 1)) * 100)
 
-SCORING SCALE (use 1-10 for sections, 0-100 for ATS):
-- 9-10: Exceptional, perfectly tailored to this JD
-- 7-8: Strong, minor gaps
-- 5-6: Average, noticeable gaps
-- 3-4: Weak, major gaps
-- 1-2: Very poor or missing
+  console.log(`[SCAN] JD words: ${jdWordSet.size}, Resume words: ${resumeWordSet.size}, Overlap: ${overlapPct}%`)
+
+  const prompt = `You are a strict ATS scoring engine. You MUST produce varied, accurate scores based on actual content.
+
+DO NOT default to 85. DO NOT give the same score every time.
+The pre-calculated keyword overlap for this resume vs JD is ${overlapPct}%.
+Use this as your primary signal for keywordMatch scoring.
+
+SCORING RULES — follow these exactly:
+- keywordMatch (0-35): proportional to keyword overlap. ${overlapPct}% overlap = ${Math.round(overlapPct * 0.35)} points
+- sectionCompleteness (0-25): deduct 5 points for each major missing section (summary, experience, education, skills, projects)
+- formattingSignals (0-15): check for bullet points, action verbs, clean structure
+- actionVerbQuality (0-10): check if bullets start with strong verbs (built, designed, led, reduced, increased)
+- quantification (0-15): count bullets with numbers/metrics — each one adds ~2 points, max 15
+
+atsScore MUST equal the exact arithmetic sum of all 5 breakdown values. No rounding tricks.
+
+SECTION SCORING (1-10):
+- 9-10: Exceptional match to JD requirements
+- 7-8:  Good, minor gaps
+- 5-6:  Average, noticeable gaps  
+- 3-4:  Weak, significant issues
+- 1-2:  Very poor or completely missing
 
 JOB TITLE: ${jobTitle}
 COMPANY: ${companyName}
@@ -214,18 +231,27 @@ COMPANY: ${companyName}
 JOB DESCRIPTION:
 ${jobDescription.slice(0, 3000)}
 
-RESUME TEXT (read every single line):
+RESUME TEXT (read every line carefully):
 ${resumeText.slice(0, 6000)}
 
-Return ONLY valid JSON. No markdown. No text before or after:
+INSTRUCTIONS:
+1. Read the full resume text above
+2. Extract REAL content — names, companies, degrees, projects, skills — exactly as written
+3. Never say contact/summary/education is missing if it exists anywhere in the text
+4. Contact info is at the TOP of the resume — name, email, phone, LinkedIn
+5. Summary is the introductory paragraph after contact info
+6. Education has degree + university + year + CGPA
+
+Return ONLY valid JSON, zero markdown, zero text outside the JSON object:
+
 {
-  "atsScore": <integer 0-100 calculated as: keywordMatch + sectionCompleteness + formattingSignals + actionVerbQuality + quantification>,
+  "atsScore": <MUST equal sum of all scoreBreakdown values>,
   "scoreBreakdown": {
-    "keywordMatch":        <0-35, based on % of JD keywords found in resume>,
-    "sectionCompleteness": <0-25, deduct heavily if key sections missing>,
+    "keywordMatch":        <0-35, use ${Math.round(overlapPct * 0.35)} as baseline>,
+    "sectionCompleteness": <0-25>,
     "formattingSignals":   <0-15>,
     "actionVerbQuality":   <0-10>,
-    "quantification":      <0-15, how many bullets have numbers/metrics>
+    "quantification":      <0-15>
   },
   "sectionGrades": {
     "education":  <1-10>,
@@ -235,73 +261,73 @@ Return ONLY valid JSON. No markdown. No text before or after:
   },
   "resumeSections": {
     "contactInfo": {
-      "content": <copy the EXACT contact line from the resume as a single string e.g. "Aqib Jawed | +91-9110131657 | ajawed.work@gmail.com | linkedin.com/in/aqib">,
-      "issues": [<ONLY add issues if something is genuinely missing — e.g. "No LinkedIn URL" only if LinkedIn is actually absent>],
-      "score": <1-10>
+      "content": <single string: "Name | email | phone | linkedin" — copy from top of resume>,
+      "issues":  [<only genuine issues — empty array [] if contact is complete>],
+      "score":   <1-10>
     },
     "summary": {
-      "content": <copy the EXACT summary/objective paragraph from the resume. If ANY introductory paragraph exists after the contact info, it IS the summary — copy it verbatim>,
-      "issues": [<only real issues — if a good summary exists tailored to the role, issues array should be empty []>],
-      "score": <1-10>
+      "content": <copy the exact introductory paragraph verbatim — if ANY paragraph exists near the top, copy it here>,
+      "issues":  [<only if summary is genuinely weak or missing>],
+      "score":   <1-10>
     },
     "experience": {
       "jobs": [
         {
-          "title":        <exact job title from resume>,
+          "title":        <exact job title>,
           "company":      <exact company name>,
           "duration":     <exact dates as written>,
-          "bullets":      [<copy ALL actual bullet points from this role verbatim>],
-          "issues":       [<specific problems with these bullets vs the JD>],
-          "improvements": [<specific rewritten versions of weak bullets>]
+          "bullets":      [<copy ALL bullet points verbatim>],
+          "issues":       [<specific problems vs this JD>],
+          "improvements": [<rewritten versions of weak bullets>]
         }
       ],
-      "overallIssues": [<only genuine cross-role issues>],
+      "overallIssues": [<cross-role issues only>],
       "score": <1-10>
     },
     "education": {
       "entries": [
         {
-          "degree":      <exact degree text e.g. "B.Tech, Computer Science & Engineering">,
+          "degree":      <exact degree e.g. "B.Tech, Computer Science & Engineering">,
           "institution": <exact university name>,
-          "year":        <exact dates e.g. "Aug 2023 – May 2027">,
-          "score":       <exact CGPA/percentage as written e.g. "CGPA: 8.53 / 10">,
-          "issues":      [<only genuine issues — if degree + institution + year + CGPA all exist, issues should be []>]
+          "year":        <exact dates>,
+          "score":       <CGPA or percentage as written>,
+          "issues":      [<empty [] if degree + institution + year + CGPA all present>]
         }
       ],
-      "overallIssues": [<only flag if education section has real problems>],
-      "score": <1-10, give 8+ if degree + institution + CGPA all present>
+      "overallIssues": [<only if real problems exist>],
+      "score": <1-10, minimum 7 if degree + institution + CGPA all present>
     },
     "skills": {
-      "technicalSkills": [<ALL technical skills listed in the resume>],
-      "softSkills":      [<soft skills if any>],
-      "missingFromJD":   [<important JD skills genuinely absent from resume>],
-      "irrelevant":      [<skills listed that are irrelevant to THIS specific JD>],
+      "technicalSkills": [<ALL technical skills listed>],
+      "softSkills":      [<soft skills if listed>],
+      "missingFromJD":   [<JD skills genuinely absent from resume>],
+      "irrelevant":      [<resume skills irrelevant to this JD>],
       "issues":          [<only real issues>],
-      "score": <1-10>
+      "score":           <1-10>
     },
     "projects": {
       "entries": [
         {
           "name":         <exact project name>,
           "tech":         [<technologies used>],
-          "description":  <copy the actual project description from resume>,
-          "issues":       [<specific issues with THIS project vs the JD>],
-          "improvements": [<specific improved version of the project description>]
+          "description":  <copy exact description from resume>,
+          "issues":       [<specific problems vs JD>],
+          "improvements": [<improved rewrite>]
         }
       ],
       "overallIssues": [<cross-project issues>],
       "score": <1-10>
     },
     "achievements": {
-      "content": [<copy ALL achievements, hackathons, leadership roles, competitive programming stats EXACTLY as written>],
+      "content": [<copy EVERY achievement, hackathon, award, leadership role, competitive stat verbatim>],
       "issues":  [<only if achievements section has real problems>],
       "score":   <1-10>
     }
   },
   "keywords": {
-    "matched": [<keywords genuinely in BOTH resume and JD — be precise>],
-    "missing": [<important JD keywords genuinely absent from resume>],
-    "bonus":   [<strong resume keywords not required by JD>]
+    "matched": [<words present in BOTH resume and JD — be precise, max 15>],
+    "missing": [<important JD words absent from resume — max 15>],
+    "bonus":   [<strong resume words not in JD — max 6>]
   },
   "suggestions": [
     {
@@ -315,14 +341,14 @@ Return ONLY valid JSON. No markdown. No text before or after:
   ],
   "indiaFlags": [
     {
-      "type":     <"PHOTO"|"DOB"|"MARITAL_STATUS"|"FATHERS_NAME"|"CAMPUS_EMAIL"|"HOME_ADDRESS"|"RELIGION">,
+      "type":     <"PHOTO"|"DOB"|"MARITAL_STATUS"|"FATHERS_NAME"|"CAMPUS_EMAIL"|"HOME_ADDRESS">,
       "message":  <specific warning>,
       "severity": "WARNING"
     }
   ],
   "roastMode": {
-    "summary": <2 brutally honest sentences about the biggest weaknesses of THIS specific resume vs THIS specific JD>,
-    "bullets": [<5 specific, actionable criticisms — reference actual resume content>]
+    "summary": <2 brutally honest sentences about THIS resume vs THIS JD>,
+    "bullets": [<5 specific criticisms referencing actual resume content>]
   }
 }`
 
@@ -336,44 +362,62 @@ Return ONLY valid JSON. No markdown. No text before or after:
       messages: [
         {
           role:    'system',
-          content: 'You are a strict ATS analyst. Return only valid JSON. Never say a section is missing if it exists in the resume text. Read the full text before judging.',
+          content: `You are a strict ATS scoring engine. CRITICAL RULES:
+1. Return ONLY valid JSON — no markdown, no text before or after
+2. atsScore MUST equal the exact sum of all scoreBreakdown values
+3. NEVER default to 85 — scores must reflect actual keyword overlap and content quality
+4. The keyword overlap for this scan is ${overlapPct}% — use this to calibrate keywordMatch
+5. Read the ENTIRE resume before judging any section
+6. Never say a section is missing if it exists in the resume text`,
         },
         { role: 'user', content: prompt },
       ],
     })
 
     rawResponse = completion.choices[0]?.message?.content ?? ''
-    console.log(`[GROQ] Response: ${rawResponse.length} chars`)
-    console.log(`[GROQ] First 400:\n${rawResponse.slice(0, 400)}`)
+    console.log(`[GROQ] Raw response: ${rawResponse.length} chars`)
+    console.log(`[GROQ] First 200 chars: ${rawResponse.slice(0, 200)}`)
 
+    // Strip any markdown fences
     let cleaned = rawResponse
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim()
 
+    // Extract JSON boundaries
     const first = cleaned.indexOf('{')
     const last  = cleaned.lastIndexOf('}')
-    if (first !== -1 && last !== -1) cleaned = cleaned.slice(first, last + 1)
+    if (first === -1 || last === -1) throw new Error('No JSON object found in response')
+    cleaned = cleaned.slice(first, last + 1)
 
     const parsed = JSON.parse(cleaned)
 
-    // Fix score integrity
+    // ENFORCE score integrity — always recalculate
     const b   = parsed.scoreBreakdown ?? {}
-    const sum =
-      (b.keywordMatch        ?? 0) +
-      (b.sectionCompleteness ?? 0) +
-      (b.formattingSignals   ?? 0) +
-      (b.actionVerbQuality   ?? 0) +
-      (b.quantification      ?? 0)
-    parsed.atsScore = Math.min(100, Math.max(0, sum))
+    const km  = Math.min(35, Math.max(0, b.keywordMatch        ?? 0))
+    const sc  = Math.min(25, Math.max(0, b.sectionCompleteness ?? 0))
+    const fs  = Math.min(15, Math.max(0, b.formattingSignals   ?? 0))
+    const av  = Math.min(10, Math.max(0, b.actionVerbQuality   ?? 0))
+    const qu  = Math.min(15, Math.max(0, b.quantification      ?? 0))
+    const sum = km + sc + fs + av + qu
 
-    console.log(`[SCAN] Final ATS score: ${parsed.atsScore}`)
+    parsed.scoreBreakdown = { keywordMatch: km, sectionCompleteness: sc, formattingSignals: fs, actionVerbQuality: av, quantification: qu }
+    parsed.atsScore       = sum
+
+    // Clamp all section grades to 1-10
+    const grades = parsed.sectionGrades ?? {}
+    for (const key of Object.keys(grades)) {
+      grades[key] = Math.min(10, Math.max(1, Math.round(Number(grades[key]) || 1)))
+    }
+
+    console.log(`[SCAN] ATS score: ${parsed.atsScore} | Keyword overlap: ${overlapPct}% | Breakdown: KM=${km} SC=${sc} FS=${fs} AV=${av} QU=${qu}`)
+
     return parsed
 
   } catch (e) {
     console.error('[GROQ ERROR]', e)
-    console.error('[GROQ RAW]', rawResponse.slice(0, 800))
+    console.error('[GROQ RAW]', rawResponse.slice(0, 500))
     throw new Error(`AI analysis failed: ${e}`)
   }
 }
