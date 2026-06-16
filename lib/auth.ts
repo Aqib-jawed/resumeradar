@@ -106,14 +106,21 @@ export const authOptions: NextAuthOptions = {
     },
 
     async redirect({ url, baseUrl }) {
-      // Always go to dashboard after any sign in
-      if (url.includes('/login') || url.includes('/register')) {
-        return `${baseUrl}/dashboard`
-      }
-      if (url.startsWith('/')) return `${baseUrl}${url}`
-      if (new URL(url).origin === baseUrl) return url
-      return `${baseUrl}/dashboard`
-    },
+  // If it's an error page — still go to dashboard if user exists
+  if (url.includes('/api/auth/error')) {
+    return `${baseUrl}/login?error=OAuthError`
+  }
+  // After successful sign in always go to dashboard
+  if (url === baseUrl || url === `${baseUrl}/`) {
+    return `${baseUrl}/dashboard`
+  }
+  if (url.includes('/login') || url.includes('/register')) {
+    return `${baseUrl}/dashboard`
+  }
+  if (url.startsWith('/')) return `${baseUrl}${url}`
+  if (new URL(url).origin === baseUrl) return url
+  return `${baseUrl}/dashboard`
+},
   },
   events: {
     async createUser({ user }) {
