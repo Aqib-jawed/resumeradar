@@ -9,31 +9,8 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as any,
   session: { strategy: 'jwt' },
   pages: {
-    signIn:  '/login',
-    error:   '/login',
-  },
-  callbacks: {
-    async jwt({ token, user, account }) {
-      if (user) {
-        token.id   = user.id
-        token.plan = (user as any).plan ?? 'FREE'
-      }
-      return token
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id   = token.id   as string
-        session.user.plan = token.plan as string
-      }
-      return session
-    },
-    // ── Add this redirect callback ──
-    async redirect({ url, baseUrl }) {
-      // After Google OAuth always go to dashboard
-      if (url.startsWith('/')) return `${baseUrl}${url}`
-      if (url.startsWith(baseUrl)) return url
-      return `${baseUrl}/dashboard`
-    },
+    signIn: '/login',
+    error:  '/login',
   },
   providers: [
     GoogleProvider({
@@ -41,7 +18,9 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          prompt: 'select_account',
+          prompt:        'select_account',
+          access_type:   'offline',
+          response_type: 'code',
         },
       },
     }),
@@ -67,9 +46,89 @@ export const authOptions: NextAuthOptions = {
           id:    user.id,
           name:  user.name,
           email: user.email,
+          image: user.image,
           plan:  user.plan,
         }
       },
     }),
   ],
+  callbacks: {
+    async signIn({ user, account }) {
+      // For Google OAuth — ensure user exists in DB with plan
+      if (account?.provider === 'google') {
+        try {
+          const existing = await prisma.user.findUnique({
+            where: { email: user.email! },
+          })
+          if (existing && !existing.plan) {
+            await prisma.user.update({
+              where: { email: user.email! },
+              data:  { plan: 'FREE' },
+            })
+          }
+        } catch (err) {
+          console.error('[SIGNIN ERROR]', err)
+        }
+      }
+      return true
+    },
+
+    async jwt({ token, user, account, trigger }) {
+      // On first sign in
+      if (user) {
+        token.id   = user.id
+        token.plan = (user as any).plan ?? 'FREE'
+      }
+      // On Google OAuth sign in — fetch fresh data from DB
+      if (account?.provider === 'google' && token.email) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where:  { email: token.email },
+            select: { id: true, plan: true },
+          })
+          if (dbUser) {
+            token.id   = dbUser.id
+            token.plan = dbUser.plan ?? 'FREE'
+          }
+        } catch (err) {
+          console.error('[JWT ERROR]', err)
+        }
+      }
+      return token
+    },
+
+    async session({ session, token }) {
+      if (session.user && token) {
+        session.user.id   = token.id   as string
+        session.user.plan = token.plan as string
+      }
+      return session
+    },
+
+    async redirect({ url, baseUrl }) {
+      // Always go to dashboard after any sign in
+      if (url.includes('/login') || url.includes('/register')) {
+        return `${baseUrl}/dashboard`
+      }
+      if (url.startsWith('/')) return `${baseUrl}${url}`
+      if (new URL(url).origin === baseUrl) return url
+      return `${baseUrl}/dashboard`
+    },
+  },
+  events: {
+    async createUser({ user }) {
+      // When Google creates a new user — ensure plan is set
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data:  { plan: 'FREE', scansUsed: 0 },
+        })
+        console.log(`[NEW USER] ${user.email} created via OAuth`)
+      } catch (err) {
+        console.error('[CREATE USER ERROR]', err)
+      }
+    },
+  },
+  secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === 'development',
 }

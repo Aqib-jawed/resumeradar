@@ -38,7 +38,10 @@ function LoginForm() {
 
   async function handleGoogle() {
   setIsGoogleLoad(true)
-  await signIn('google', { callbackUrl: '/dashboard' })
+  await signIn('google', {
+    callbackUrl: '/dashboard',
+    redirect:    true,
+  })
 }
 
   return (
