@@ -48,9 +48,9 @@ export default function RegisterPage() {
   }
 
   async function handleGoogle() {
-    setIsGoogleLoad(true)
-    await signIn('google', { callbackUrl: '/dashboard' })
-  }
+  setIsGoogleLoad(true)
+  await signIn('google', { callbackUrl: '/dashboard' })
+}
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">

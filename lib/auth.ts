@@ -12,15 +12,43 @@ export const authOptions: NextAuthOptions = {
     signIn:  '/login',
     error:   '/login',
   },
+  callbacks: {
+    async jwt({ token, user, account }) {
+      if (user) {
+        token.id   = user.id
+        token.plan = (user as any).plan ?? 'FREE'
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id   = token.id   as string
+        session.user.plan = token.plan as string
+      }
+      return session
+    },
+    // ── Add this redirect callback ──
+    async redirect({ url, baseUrl }) {
+      // After Google OAuth always go to dashboard
+      if (url.startsWith('/')) return `${baseUrl}${url}`
+      if (url.startsWith(baseUrl)) return url
+      return `${baseUrl}/dashboard`
+    },
+  },
   providers: [
     GoogleProvider({
       clientId:     process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: 'select_account',
+        },
+      },
     }),
     CredentialsProvider({
       name: 'credentials',
       credentials: {
-        email:    { label: 'Email',    type: 'email' },
+        email:    { label: 'Email',    type: 'email'    },
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
@@ -44,20 +72,4 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id   = user.id
-        token.plan = (user as any).plan
-      }
-      return token
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id   = token.id   as string
-        session.user.plan = token.plan as string
-      }
-      return session
-    },
-  },
 }

@@ -37,9 +37,9 @@ function LoginForm() {
   }
 
   async function handleGoogle() {
-    setIsGoogleLoad(true)
-    await signIn('google', { callbackUrl })
-  }
+  setIsGoogleLoad(true)
+  await signIn('google', { callbackUrl: '/dashboard' })
+}
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
