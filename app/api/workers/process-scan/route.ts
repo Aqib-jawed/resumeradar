@@ -2,10 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Receiver } from '@upstash/qstash'
 import { processScan } from '@/workers/scanProcessor'
 
-const receiver = new Receiver({
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY!,
-  nextSigningKey:    process.env.QSTASH_NEXT_SIGNING_KEY!,
-})
+let receiver: Receiver | null = null
+
+function getReceiver() {
+  if (!receiver) {
+    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
+    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
+    if (!currentSigningKey || !nextSigningKey) {
+      throw new Error('QStash signing keys are missing from environment variables.')
+    }
+    receiver = new Receiver({
+      currentSigningKey,
+      nextSigningKey,
+    })
+  }
+  return receiver
+}
 
 interface ProcessScanBody {
   scanId: string
@@ -22,7 +34,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
     }
 
-    const isValid = await receiver.verify({
+    const isValid = await getReceiver().verify({
       signature,
       body,
     })
