@@ -19,7 +19,7 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
 // Clean up old entries every 5 minutes
 setInterval(() => {
   const now = Date.now()
-  for (const [key, val] of requests.entries()) {
+  requests.forEach((val, key) => {
     if (now > val.resetAt) requests.delete(key)
-  }
+  })
 }, 5 * 60 * 1000)

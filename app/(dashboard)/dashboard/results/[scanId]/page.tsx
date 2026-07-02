@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   CheckCircle2, XCircle, AlertTriangle, ChevronDown,
   Copy, Check, Flame, Shield, ArrowLeft, TrendingUp,
-  User, Briefcase, GraduationCap, Code2, Trophy, Star
+  User, Briefcase, GraduationCap, Code2, Trophy, Star,
+  Share2, Download, Loader2
 } from 'lucide-react'
 
 /* ── Types ── */
@@ -121,6 +122,50 @@ export default function ResultsPage() {
   const [openIdx,  setOpenIdx]  = useState<number | null>(0)
   const [copied,   setCopied]   = useState<string | null>(null)
   const [animated, setAnimated] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [sharing, setSharing] = useState(false)
+
+  async function handleDownload() {
+    setDownloading(true)
+    try {
+      const res = await fetch(`/api/scan/${scanId}/export`, { method: 'POST' })
+      if (!res.ok) {
+        if (res.status === 403) {
+          router.push('/upgrade')
+          return
+        }
+        throw new Error('Failed to download')
+      }
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `improved-resume-${scanId}.pdf`
+      a.click()
+    } catch (err) {
+      alert('Error downloading PDF')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  async function handleShare() {
+    setSharing(true)
+    try {
+      const res = await fetch(`/api/scan/${scanId}/share`, { method: 'POST' })
+      const json = await res.json()
+      if (json.success) {
+        const link = `${window.location.origin}/r/${json.data.shareToken}`
+        copy(link, 'share')
+      } else {
+        alert('Error sharing report: ' + json.error)
+      }
+    } catch (err) {
+      alert('Error sharing report')
+    } finally {
+      setSharing(false)
+    }
+  }
 
   useEffect(() => {
     let timer: NodeJS.Timeout
@@ -581,7 +626,17 @@ export default function ResultsPage() {
             <p className="text-sm font-bold text-white">Want to prep for the interview?</p>
             <p className="text-xs text-[#6B7280] mt-0.5">Get 20 questions tailored to your exact gaps</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={handleShare} disabled={sharing}
+              className="px-4 py-2.5 bg-[#161616] border border-[rgba(255,255,255,0.08)] text-[#9CA3AF] font-semibold text-sm rounded-xl hover:text-white transition-colors flex items-center gap-2">
+              {sharing ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />}
+              {copied === 'share' ? 'Copied Link!' : 'Share report'}
+            </button>
+            <button onClick={handleDownload} disabled={downloading}
+              className="px-4 py-2.5 bg-[#161616] border border-[rgba(255,255,255,0.08)] text-[#9CA3AF] font-semibold text-sm rounded-xl hover:text-white transition-colors flex items-center gap-2">
+              {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              Download improved resume
+            </button>
             <button onClick={() => router.push(`/dashboard/interview-prep/${scan.id}`)}
               className="px-4 py-2.5 bg-[#C8F135] text-[#111] font-black text-sm rounded-xl hover:bg-[#d4f54a] transition-colors">
               Interview prep →

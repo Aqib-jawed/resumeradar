@@ -20,5 +20,5 @@ export default async function ScansPage() {
     },
   })
 
-  return <ScansClient scans={scans} />
+  return <ScansClient scans={scans.map(s => ({ ...s, createdAt: s.createdAt.toISOString() }))} />
 }

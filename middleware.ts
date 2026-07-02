@@ -19,5 +19,7 @@ export const config = {
     '/api/ghost-mode/:path*',
     '/api/interview/:path*',
     '/api/jd-decoder/:path*',
+    '/api/jd/:path*',
+    '/api/user/:path*',
   ],
 }

@@ -58,6 +58,13 @@ export async function processScan(scanId: string) {
       },
     })
 
+    // Increment scansUsed ONLY after successful completion
+    // (failed scans should not count against the user's monthly quota)
+    await prisma.user.update({
+      where: { id: scan.userId },
+      data:  { scansUsed: { increment: 1 } },
+    })
+
     console.log(`[SCAN COMPLETE] ${scanId}`)
 
   } catch (err) {

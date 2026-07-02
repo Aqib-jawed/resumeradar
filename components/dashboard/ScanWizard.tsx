@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import { Upload, FileText, X, Briefcase } from 'lucide-react'
+import { Upload, FileText, X, Briefcase, Link as LinkIcon, Loader2 } from 'lucide-react'
 
 const step1Schema = z.object({
   jobTitle:       z.string().min(2, 'Job title is required'),
@@ -25,7 +25,11 @@ export default function ScanWizard() {
   const [uploading,  setUploading]  = useState(false)
   const [error,      setError]      = useState('')
 
-  const { register, handleSubmit, watch, formState: { errors } } =
+  const [urlMode,    setUrlMode]    = useState(false)
+  const [urlValue,   setUrlValue]   = useState('')
+  const [scraping,   setScraping]   = useState(false)
+
+  const { register, handleSubmit, watch, setValue, formState: { errors } } =
     useForm<Step1Data>({ resolver: zodResolver(step1Schema) })
 
   const jdValue = watch('jobDescription', '')
@@ -34,6 +38,42 @@ export default function ScanWizard() {
   function onStep1(data: Step1Data) {
     setStep1Data(data)
     setStep(2)
+  }
+
+  async function handleScrape(e: React.FormEvent) {
+    e.preventDefault()
+    if (!urlValue) return
+    
+    setScraping(true)
+    setError('')
+    
+    try {
+      const res = await fetch('/api/jd/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlValue })
+      })
+      
+      const json = await res.json()
+      
+      if (!res.ok || !json.success) {
+        setUrlMode(false)
+        setError(json.message || 'Could not auto-import this URL. Please paste the job description manually.')
+        return
+      }
+      
+      // Auto-fill form
+      setValue('jobTitle', json.data.jobTitle, { shouldValidate: true })
+      setValue('companyName', json.data.companyName, { shouldValidate: true })
+      setValue('jobDescription', json.data.jobDescription, { shouldValidate: true })
+      
+      setUrlMode(false)
+    } catch (err) {
+      setUrlMode(false)
+      setError('Could not auto-import this URL. Please paste the job description manually.')
+    } finally {
+      setScraping(false)
+    }
   }
 
   /* ── File handling ── */
@@ -115,51 +155,98 @@ export default function ScanWizard() {
 
         {/* ── STEP 1: Job details ── */}
         {step === 1 && (
-          <form onSubmit={handleSubmit(onStep1)} className="space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Job Title</label>
-                <input
-                  placeholder="e.g. Senior Frontend Engineer"
-                  className={fieldCls(!!errors.jobTitle)}
-                  {...register('jobTitle')}
-                />
-                {errors.jobTitle && <Err msg={errors.jobTitle.message!} />}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Company Name</label>
-                <input
-                  placeholder="e.g. Razorpay"
-                  className={fieldCls(!!errors.companyName)}
-                  {...register('companyName')}
-                />
-                {errors.companyName && <Err msg={errors.companyName.message!} />}
-              </div>
+          <div className="space-y-5">
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => { setUrlMode(!urlMode); setError(''); }}
+                className="text-xs font-semibold text-[#C8F135] hover:underline flex items-center gap-1.5"
+              >
+                {urlMode ? 'Paste text manually instead' : 'Paste a job URL instead'}
+                <LinkIcon size={12} />
+              </button>
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">
-                  Job Description
-                </label>
-                <span className="text-xs font-mono text-[#444444]">{jdValue.length} chars</span>
-              </div>
-              <textarea
-                rows={8}
-                placeholder="Paste the full job description here — the more complete it is, the more accurate your ATS analysis will be..."
-                className={`${fieldCls(!!errors.jobDescription)} resize-none`}
-                {...register('jobDescription')}
-              />
-              {errors.jobDescription && <Err msg={errors.jobDescription.message!} />}
-            </div>
+            {error && <Err msg={error} />}
 
-            <button
-              type="submit"
-              className="w-full py-3.5 bg-[#C8F135] text-[#111111] font-black text-sm rounded-xl hover:bg-[#d4f54a] active:scale-[0.98] transition-all"
-            >
-              Continue to upload →
-            </button>
-          </form>
+            {urlMode ? (
+              <form onSubmit={handleScrape} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Job URL</label>
+                  <input
+                    type="url"
+                    value={urlValue}
+                    onChange={(e) => setUrlValue(e.target.value)}
+                    placeholder="e.g. https://www.naukri.com/job-listings-..."
+                    className={fieldCls(false)}
+                    required
+                  />
+                  <p className="text-[10px] text-[#555555]">Supports Naukri, LinkedIn, Internshala, and Unstop.</p>
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={!urlValue || scraping}
+                  className="w-full py-3.5 bg-[#C8F135] text-[#111111] font-black text-sm rounded-xl hover:bg-[#d4f54a] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                >
+                  {scraping ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Importing Job Details...
+                    </>
+                  ) : (
+                    'Auto-Import Job Details'
+                  )}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit(onStep1)} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Job Title</label>
+                    <input
+                      placeholder="e.g. Senior Frontend Engineer"
+                      className={fieldCls(!!errors.jobTitle)}
+                      {...register('jobTitle')}
+                    />
+                    {errors.jobTitle && <Err msg={errors.jobTitle.message!} />}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Company Name</label>
+                    <input
+                      placeholder="e.g. Razorpay"
+                      className={fieldCls(!!errors.companyName)}
+                      {...register('companyName')}
+                    />
+                    {errors.companyName && <Err msg={errors.companyName.message!} />}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#888888] uppercase tracking-wider">
+                      Job Description
+                    </label>
+                    <span className="text-xs font-mono text-[#444444]">{jdValue.length} chars</span>
+                  </div>
+                  <textarea
+                    rows={8}
+                    placeholder="Paste the full job description here — the more complete it is, the more accurate your ATS analysis will be..."
+                    className={`${fieldCls(!!errors.jobDescription)} resize-none`}
+                    {...register('jobDescription')}
+                  />
+                  {errors.jobDescription && <Err msg={errors.jobDescription.message!} />}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-[#C8F135] text-[#111111] font-black text-sm rounded-xl hover:bg-[#d4f54a] active:scale-[0.98] transition-all"
+                >
+                  Continue to upload →
+                </button>
+              </form>
+            )}
+          </div>
         )}
 
         {/* ── STEP 2: File upload ── */}

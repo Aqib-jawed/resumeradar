@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { processScan } from '@/workers/scanProcessor'
+import { enqueueScan } from '@/lib/qstash'
+import { checkPlanLimit, PlanLimitError } from '@/lib/planGate'
 
 const schema = z.object({
   jobTitle:       z.string().min(2),
@@ -26,13 +27,27 @@ export async function POST(req: NextRequest) {
     if (!session?.user?.id)
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
+    // Plan gating — check scan limits before creating
+    try {
+      await checkPlanLimit(session.user.id)
+    } catch (err) {
+      if (err instanceof PlanLimitError) {
+        return NextResponse.json(
+          { success: false, error: 'PLAN_LIMIT', upgradeUrl: err.upgradeUrl, message: err.message },
+          { status: 403 }
+        )
+      }
+      throw err
+    }
+
     const body   = await req.json()
     const parsed = schema.safeParse(body)
-    if (!parsed.success)
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: parsed.error.errors[0].message },
+        { success: false, error: parsed.error.issues[0].message },
         { status: 400 }
       )
+    }
 
     const { jobTitle, companyName, jobDescription, resumeS3Key } = parsed.data
 
@@ -42,17 +57,16 @@ export async function POST(req: NextRequest) {
         userId:        session.user.id,
         jobTitle,
         companyName,
-        companyType:   detectCompanyType(companyName) as any,
+        companyType:   detectCompanyType(companyName) as 'PSU' | 'GOVERNMENT' | 'MNC' | 'STARTUP',
         jobDescription,
         resumeS3Key,
         status:        'PENDING',
       },
     })
 
-    // Process in background — no Redis needed
-    processScan(scan.id).catch(err =>
-      console.error('[BACKGROUND SCAN ERROR]', err)
-    )
+    // Enqueue scan job via QStash — scansUsed is incremented
+    // inside processScan() only after status is set to COMPLETE
+    await enqueueScan(scan.id)
 
     return NextResponse.json(
       { success: true, data: { scanId: scan.id } },
